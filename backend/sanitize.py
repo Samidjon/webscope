@@ -23,7 +23,7 @@ def _is_sensitive(key: str) -> bool:
 
 
 def _sanitize_set_cookie(value: str) -> str:
-    """Keep cookie flags useful for passive checks but never keep the cookie value."""
+    """Retain cookie flags for passive checks, but never persist its value."""
     parts = [part.strip() for part in value.split(";")]
     if not parts:
         return "[REDACTED]"
@@ -33,13 +33,13 @@ def _sanitize_set_cookie(value: str) -> str:
     safe_attributes = []
     for part in parts[1:]:
         attr_name = part.split("=", 1)[0].strip().lower()
-        if attr_name in {"path", "domain", "expires", "max-age", "samesite", "priority"} or attr_name in {"secure", "httponly", "partitioned"}:
+        if attr_name in {"path", "domain", "expires", "max-age", "samesite", "priority", "secure", "httponly", "partitioned"}:
             safe_attributes.append(part[:250])
     return "; ".join([safe_first, *safe_attributes])
 
 
 def sanitize_headers(headers: Iterable[tuple[str, str]]) -> list[list[str]]:
-    """Mask secrets while retaining non-secret Set-Cookie security attributes."""
+    """Mask credentials while preserving Set-Cookie security attributes."""
     output: list[list[str]] = []
     for name, value in headers:
         lowered = name.lower()
@@ -52,13 +52,23 @@ def sanitize_headers(headers: Iterable[tuple[str, str]]) -> list[list[str]]:
 
 
 def sanitize_url(url: str) -> str:
-    """Mask likely secret values in URL query parameters."""
+    """Mask sensitive query values and strip credentials embedded in URL authority."""
     try:
         parts = urlsplit(url)
         safe_query = []
         for key, value in parse_qsl(parts.query, keep_blank_values=True):
             safe_query.append((key, "[REDACTED]" if _is_sensitive(key) else value))
-        return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(safe_query), parts.fragment))
+        netloc = parts.netloc
+        if parts.username is not None or parts.password is not None:
+            hostname = parts.hostname or ""
+            if ":" in hostname and not hostname.startswith("["):
+                hostname = "[" + hostname + "]"
+            try:
+                port = parts.port
+            except ValueError:
+                port = None
+            netloc = hostname + ((":" + str(port)) if port else "")
+        return urlunsplit((parts.scheme, netloc, parts.path, urlencode(safe_query), parts.fragment))
     except Exception:
         return url
 
@@ -91,7 +101,7 @@ def sanitize_body(body: str | None, content_type: str | None = None) -> str:
             return f"[Body omitted: non-text content, {len(body)} characters]"
     except (json.JSONDecodeError, UnicodeError, TypeError):
         pass
-    pattern = re.compile(r'(?i)(["\']?(?:password|passwd|secret|token|api[_-]?key|access[_-]?key|refresh[_-]?token)["\']?\s*[:=]\s*)(["\']?)([^\s,"\']+&}]+)')
+    pattern = re.compile(r"(?i)(['\"]?(?:password|passwd|secret|token|api[_-]?key|access[_-]?key|refresh[_-]?token)['\"]?\s*[:=]\s*)(['\"]?)([^\s,'\"&}]+)")
     text = pattern.sub(lambda m: f"{m.group(1)}{m.group(2)}[REDACTED]", text)
     if len(text) > MAX_BODY_CHARS:
         text = text[:MAX_BODY_CHARS] + "\n… [truncated by WebScope]"
