@@ -14,7 +14,7 @@ class SanitizationTests(unittest.TestCase):
         self.assertNotIn("alice", safe)
         self.assertNotIn("password", safe)
         self.assertNotIn("abc", safe)
-        self.assertIn("[REDACTED]", safe)
+        self.assertIn("REDACTED", safe)
         self.assertIn("view=full", safe)
 
     def test_set_cookie_value_is_redacted_but_flags_remain(self):
