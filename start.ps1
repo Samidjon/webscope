@@ -30,6 +30,15 @@ if (-not (Test-Path $Mitmdump)) {
     if ($LASTEXITCODE -ne 0) { throw 'Python dependency installation failed.' }
 }
 
+# Later releases may add Python packages. Check the required HTTP client even
+# when mitmdump already exists in an older virtual environment.
+& $Python -c "import httpx" *> $null
+if ($LASTEXITCODE -ne 0) {
+    Write-Host 'Installing newly required Python dependencies...' -ForegroundColor Cyan
+    & $Python -m pip install -r requirements.txt
+    if ($LASTEXITCODE -ne 0) { throw 'Python dependency installation failed.' }
+}
+
 if (-not (Test-Path (Join-Path $Root 'frontend\node_modules'))) {
     Write-Host '[3/4] Installing frontend dependencies (first run requires internet)...' -ForegroundColor Cyan
     Push-Location (Join-Path $Root 'frontend')
